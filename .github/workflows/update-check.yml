@@ -1,0 +1,286 @@
+name: Check for upstream updates
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6 AM UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  FEDORA_VERSION: 43
+
+jobs:
+  check-upstream:
+    name: Check for upstream image updates
+    runs-on: ubuntu-latest
+    outputs:
+      build_required: ${{ steps.check.outputs.build_required }}
+      base_changed: ${{ steps.check.outputs.base_changed }}
+      akmods_changed: ${{ steps.check.outputs.akmods_changed }}
+      nvidia_changed: ${{ steps.check.outputs.nvidia_changed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+
+      - name: Check upstream image digests
+        id: check
+        run: |
+          set -e
+
+          # Always build if manually triggered
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Manual trigger - forcing build"
+            echo "build_required=true" >> "$GITHUB_OUTPUT"
+            echo "base_changed=manual" >> "$GITHUB_OUTPUT"
+            echo "akmods_changed=manual" >> "$GITHUB_OUTPUT"
+            echo "nvidia_changed=manual" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Fetching current upstream digests..."
+
+          # Fetch current digests from upstream
+          BASE_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://quay.io/fedora/fedora-silverblue:${{ env.FEDORA_VERSION }})
+          AKMODS_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/ublue-os/akmods:main-${{ env.FEDORA_VERSION }})
+          NVIDIA_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/ublue-os/akmods-nvidia-open:main-${{ env.FEDORA_VERSION }})
+
+          echo "Current upstream digests:"
+          echo "  Fedora Silverblue: $BASE_DIGEST"
+          echo "  Akmods: $AKMODS_DIGEST"
+          echo "  Nvidia Akmods: $NVIDIA_DIGEST"
+
+          # Load stored digests from image-versions.yaml
+          if [ -f image-versions.yaml ]; then
+            STORED_BASE=$(yq -r '.images[] | select(.name == "silverblue-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
+            STORED_AKMODS=$(yq -r '.images[] | select(.name == "akmods-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
+            STORED_NVIDIA=$(yq -r '.images[] | select(.name == "akmods-nvidia-open-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
+
+            echo ""
+            echo "Stored digests:"
+            echo "  Fedora Silverblue: $STORED_BASE"
+            echo "  Akmods: $STORED_AKMODS"
+            echo "  Nvidia Akmods: $STORED_NVIDIA"
+          else
+            echo "No image-versions.yaml found - first run"
+            STORED_BASE="none"
+            STORED_AKMODS="none"
+            STORED_NVIDIA="none"
+          fi
+
+          # Compare digests
+          BUILD_REQUIRED=false
+          BASE_CHANGED=false
+          AKMODS_CHANGED=false
+          NVIDIA_CHANGED=false
+
+          if [ "$BASE_DIGEST" != "$STORED_BASE" ]; then
+            echo ""
+            echo "CHANGED: Fedora Silverblue digest changed!"
+            BUILD_REQUIRED=true
+            BASE_CHANGED=true
+          fi
+
+          if [ "$AKMODS_DIGEST" != "$STORED_AKMODS" ]; then
+            echo ""
+            echo "CHANGED: Akmods digest changed!"
+            BUILD_REQUIRED=true
+            AKMODS_CHANGED=true
+          fi
+
+          if [ "$NVIDIA_DIGEST" != "$STORED_NVIDIA" ]; then
+            echo ""
+            echo "CHANGED: Nvidia Akmods digest changed!"
+            BUILD_REQUIRED=true
+            NVIDIA_CHANGED=true
+          fi
+
+          if [ "$BUILD_REQUIRED" = false ]; then
+            echo ""
+            echo "No upstream changes detected - skipping build"
+          fi
+
+          # Output results
+          echo "build_required=$BUILD_REQUIRED" >> "$GITHUB_OUTPUT"
+          echo "base_changed=$BASE_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "akmods_changed=$AKMODS_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "nvidia_changed=$NVIDIA_CHANGED" >> "$GITHUB_OUTPUT"
+
+          # Store new digests for next run
+          cat > image-versions.yaml <<EOF
+          images:
+            - name: silverblue-${{ env.FEDORA_VERSION }}
+              digest: $BASE_DIGEST
+            - name: akmods-${{ env.FEDORA_VERSION }}
+              digest: $AKMODS_DIGEST
+            - name: akmods-nvidia-open-${{ env.FEDORA_VERSION }}
+              digest: $NVIDIA_DIGEST
+          EOF
+
+      - name: Upload updated image-versions.yaml
+        if: steps.check.outputs.build_required == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-versions
+          path: image-versions.yaml
+
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: check-upstream
+    if: needs.check-upstream.outputs.build_required == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - slate
+          - slate-nvidia-open
+        include:
+          - image: slate
+            build_nvidia: "N"
+          - image: slate-nvidia-open
+            build_nvidia: "Y"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Containerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            FEDORA_VERSION=${{ env.FEDORA_VERSION }}
+            IMAGE_NAME=${{ matrix.image }}
+            IMAGE_VENDOR=${{ env.IMAGE_NAMESPACE }}
+            BUILD_NVIDIA=${{ matrix.build_nvidia }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with cosign
+        env:
+          COSIGN_EXPERIMENTAL: false
+        run: |
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
+            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+
+      - name: Verify signature
+        run: |
+          cosign verify --key cosign.pub \
+            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+
+      - name: Build summary
+        run: |
+          echo "### Upstream Update Build: ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ matrix.image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: Upstream image update detected" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base changed**: ${{ needs.check-upstream.outputs.base_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Akmods changed**: ${{ needs.check-upstream.outputs.akmods_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nvidia changed**: ${{ needs.check-upstream.outputs.nvidia_changed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Published**: Yes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry**: \`${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Signed**: Yes" >> $GITHUB_STEP_SUMMARY
+
+  update-versions-file:
+    name: Update image-versions.yaml in repo
+    runs-on: ubuntu-latest
+    needs: [check-upstream, build]
+    if: needs.check-upstream.outputs.build_required == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download updated image-versions.yaml
+        uses: actions/download-artifact@v4
+        with:
+          name: image-versions
+
+      - name: Commit updated image-versions.yaml
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add image-versions.yaml
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update upstream image digests [automated]"
+            git push
+          fi
+
+  check:
+    name: Check all builds successful
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [check-upstream, build]
+    steps:
+      - name: Check build results
+        env:
+          CHECK_RESULT: ${{ needs.check-upstream.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_REQUIRED: ${{ needs.check-upstream.outputs.build_required }}
+        run: |
+          echo "Workflow results:"
+          echo "  - Check upstream: $CHECK_RESULT"
+          echo "  - Build: $BUILD_RESULT"
+          echo "  - Build required: $BUILD_REQUIRED"
+
+          if [ "$CHECK_RESULT" != "success" ]; then
+            echo "ERROR: Upstream check failed!"
+            exit 1
+          fi
+
+          if [ "$BUILD_REQUIRED" == "true" ] && [ "$BUILD_RESULT" != "success" ]; then
+            echo "ERROR: Build failed!"
+            exit 1
+          fi
+
+          if [ "$BUILD_REQUIRED" == "false" ]; then
+            echo "SUCCESS: No upstream changes - workflow completed successfully"
+          else
+            echo "SUCCESS: Upstream changes detected and build successful!"
+          fi

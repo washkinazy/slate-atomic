@@ -1,0 +1,13 @@
+# Upstream Image Digest Tracking
+# This file is automatically updated by .github/workflows/update-check.yml
+# It tracks the digests of upstream images to detect when rebuilds are needed
+#
+# DO NOT manually edit this file - it will be overwritten by the workflow
+
+images:
+  - name: silverblue-43
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: akmods-43
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+  - name: akmods-nvidia-open-43
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
