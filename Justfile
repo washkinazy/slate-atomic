@@ -104,6 +104,54 @@ lint:
     fi
     find build_files -name "*.sh" -type f -exec shellcheck {} \;
 
+# Check GitHub workflow syntax
+[group('Utility')]
+check-workflows:
+    #!/usr/bin/bash
+    set -euo pipefail
+
+    if ! command -v gh &> /dev/null; then
+        echo "ERROR: gh CLI not found. Install it to check workflows."
+        echo "  Fedora: sudo dnf install gh"
+        exit 1
+    fi
+
+    echo "Checking GitHub workflow syntax..."
+    WORKFLOW_DIR=".github/workflows"
+
+    if [ ! -d "$WORKFLOW_DIR" ]; then
+        echo "ERROR: $WORKFLOW_DIR directory not found"
+        exit 1
+    fi
+
+    FAILED=0
+    for workflow in "$WORKFLOW_DIR"/*.yml "$WORKFLOW_DIR"/*.yaml; do
+        if [ -f "$workflow" ]; then
+            echo "  Checking: $(basename "$workflow")"
+            if ! gh workflow view "$(basename "$workflow")" &> /dev/null; then
+                echo "    ERROR: Syntax check failed for $(basename "$workflow")"
+                FAILED=1
+            else
+                echo "    OK"
+            fi
+        fi
+    done
+
+    if [ $FAILED -eq 1 ]; then
+        echo ""
+        echo "ERROR: Some workflows have syntax errors"
+        exit 1
+    fi
+
+    echo ""
+    echo "SUCCESS: All workflows passed syntax check"
+
+# Run all pre-push checks
+[group('Utility')]
+pre-push: check lint check-workflows
+    @echo ""
+    @echo "SUCCESS: All pre-push checks passed!"
+
 # Generate sigstore signing keypair (run once) - supports cosign or skopeo
 [group('Setup')]
 generate-signing-key:

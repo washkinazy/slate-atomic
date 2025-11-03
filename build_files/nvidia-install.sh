@@ -20,6 +20,7 @@ dnf5 install -y "${AKMODNV_PATH}"/ublue-os/ublue-os-nvidia-addons-*.rpm
 dnf5 config-manager setopt fedora-nvidia.enabled=1 nvidia-container-toolkit.enabled=1
 
 # Source nvidia variables
+# shellcheck disable=SC1091
 source "${AKMODNV_PATH}"/kmods/nvidia-vars
 
 # Install nvidia drivers and kernel module
