@@ -75,20 +75,50 @@ The GitHub Actions workflow (build.yml:86-94) signs images after building and ve
 
 ## CI/CD with GitHub Actions
 
-**Triggers:** (build.yml:3-12)
-- Push to `main` branch
-- Pull requests (build only, no publish)
-- Weekly schedule (Sundays at midnight)
+slate-atomic uses a **hybrid workflow strategy**:
+
+### 1. build.yml - Code Changes
+**Triggers:**
+- Push to `main` branch (with path filtering)
+- Pull requests to `main` (with path filtering)
 - Manual workflow dispatch
 
-**Build strategy:** Matrix builds both images in parallel
+**Path filtering:** Only triggers when these files change:
+- `Containerfile`, `build_files/**`, `sys_files/**`, `just/**`, `.github/workflows/**`, `Justfile`
+- Skips: README.md, LICENSE, documentation-only changes
+
+**Validation:** Runs before building:
+- Checks for accidentally committed secrets
+- Lints Containerfile with hadolint
+- Lints shell scripts with shellcheck
+- Validates Just syntax
+
+**Publishing:** Only on push to `main` (not PRs)
+
+### 2. update-check.yml - Upstream Changes
+**Triggers:**
+- Daily schedule (6 AM UTC)
+- Manual workflow dispatch
+
+**Smart detection:**
+- Fetches current digests from upstream images (Fedora, akmods, nvidia-akmods)
+- Compares with stored digests in `image-versions.yaml`
+- Only builds if upstream images changed
+- Auto-commits updated `image-versions.yaml`
+
+**Publishing:** Always publishes when it builds
+
+**Build strategy:** Both workflows use matrix to build images in parallel
 - slate: `BUILD_NVIDIA=N`
 - slate-nvidia-open: `BUILD_NVIDIA=Y`
 
-**Publishing:**
-- Images pushed to `ghcr.io/washkinazy/<image>:latest`
+**Images:**
+- `ghcr.io/washkinazy/slate:latest`
+- `ghcr.io/washkinazy/slate-nvidia-open:latest`
 - Signed with cosign using SIGNING_SECRET
 - Signature verified before workflow completes
+
+**See `.github/WORKFLOWS.md` for detailed workflow behavior matrix.**
 
 ## User-Facing Tools (sjust)
 
@@ -141,24 +171,28 @@ slate-atomic uses the **Containerfile approach** with direct Fedora base images:
 
 ```
 slate-atomic/
-├── .github/workflows/
-│   └── build.yml           # CI/CD pipeline (matrix builds both images)
+├── .github/
+│   ├── workflows/
+│   │   ├── build.yml           # Code change builds with path filtering
+│   │   └── update-check.yml    # Daily upstream image digest checks
+│   └── WORKFLOWS.md            # Workflow behavior documentation
 ├── build_files/
-│   ├── install.sh          # Main installation (sys_files, kernel, sjust setup)
-│   ├── nvidia-install.sh   # Nvidia driver installation (conditional, BUILD_NVIDIA=Y)
-│   ├── initramfs.sh        # Placeholder (rpm-ostree handles initramfs)
-│   └── post-install.sh     # Cleanup and ostree commit
+│   ├── install.sh              # Main installation (sys_files, kernel, sjust setup)
+│   ├── nvidia-install.sh       # Nvidia driver installation (conditional, BUILD_NVIDIA=Y)
+│   ├── initramfs.sh            # Placeholder (rpm-ostree handles initramfs)
+│   └── post-install.sh         # Cleanup and ostree commit
 ├── just/
-│   └── 60-slate.just       # sjust commands (available as 'sjust' on installed systems)
-├── sys_files/              # Files to copy to / (currently empty, use as needed)
-├── BUILD.md                # Build process documentation (keep up to date!)
-├── Containerfile           # Build definition with BUILD_NVIDIA conditional
-├── Justfile                # Development commands (build, inspect, lint, etc.)
-├── cosign.pub              # Public signing key (commit to repo)
-├── cosign.private          # Private signing key (NEVER commit, add to GitHub Secrets)
-├── .gitignore              # Ignore private keys and build artifacts
-├── CLAUDE.md               # This file
-└── README.md               # User-facing documentation
+│   └── 60-slate.just           # sjust commands (available as 'sjust' on installed systems)
+├── sys_files/                  # Files to copy to / (currently empty, use as needed)
+├── BUILD.md                    # Build process documentation (keep up to date!)
+├── CLAUDE.md                   # This file (internal, not referenced in user docs)
+├── Containerfile               # Build definition with BUILD_NVIDIA conditional
+├── image-versions.yaml         # Upstream image digest tracking (auto-updated)
+├── Justfile                    # Development commands (build, lint, check-workflows, etc.)
+├── README.md                   # User-facing documentation
+├── cosign.pub                  # Public signing key (commit to repo)
+├── cosign.private              # Private signing key (NEVER commit, add to GitHub Secrets)
+└── .gitignore                  # Ignore private keys and build artifacts
 ```
 
 ### Build Script Flow
@@ -270,7 +304,7 @@ just shell slate
 # Clean build artifacts
 just clean
 
-# Lint shell scripts
+# Lint shell scripts (with shellcheck)
 just lint
 
 # Check Just syntax
@@ -278,15 +312,35 @@ just check
 
 # Fix Just syntax
 just fix
+
+# Check GitHub workflow syntax
+just check-workflows
+
+# Run all pre-push checks (Just syntax, shellcheck, workflow validation)
+just pre-push
 ```
+
+**Note:** Shell scripts contain intentional shellcheck suppressions:
+- `SC2114` in `post-install.sh` - Deleting /boot is intentional in container context
+- `SC1091` in `nvidia-install.sh` - nvidia-vars file mounted at build time from akmods
 
 ### CI/CD Publishing
 
-Images automatically published to:
+**Images published to:**
 - `ghcr.io/washkinazy/slate:latest`
 - `ghcr.io/washkinazy/slate-nvidia-open:latest`
 
-Triggers: push to main, PRs (build only), weekly, or manual dispatch
+**When images are published:**
+- Push to main (only if build files change - path filtered)
+- Daily at 6 AM UTC (only if upstream images changed - smart detection)
+- Manual workflow dispatch
+
+**When images are NOT published:**
+- Pull requests (build only for validation)
+- README/docs-only changes (skipped entirely)
+- Daily check when no upstream changes detected
+
+**See `.github/WORKFLOWS.md` for complete workflow behavior matrix.**
 
 Users install via:
 ```bash
@@ -348,4 +402,39 @@ Edit `just/60-slate.just` with new commands:
 my-command:
     echo "Running my command"
     # command implementation
+```
+
+## Workflow Validation
+
+Before pushing changes that modify workflows:
+
+```bash
+# Validate workflow syntax
+just check-workflows
+
+# Run all pre-push checks
+just pre-push
+```
+
+This catches YAML syntax errors and workflow configuration issues before pushing to GitHub.
+
+## Upstream Image Tracking
+
+The `image-versions.yaml` file tracks upstream image digests:
+- `silverblue-43` - Fedora Silverblue base image
+- `akmods-43` - ublue-os akmods (kernel modules, signed kernel)
+- `akmods-nvidia-open-43` - ublue-os nvidia open drivers
+
+**Auto-updated by update-check.yml workflow:**
+- Daily check fetches current digests
+- Compares with stored values
+- If changed, triggers build and commits updated file
+- Do not manually edit this file
+
+**To check for updates manually:**
+```bash
+# Check current upstream digests
+skopeo inspect docker://quay.io/fedora/fedora-silverblue:43 | jq -r .Digest
+skopeo inspect docker://ghcr.io/ublue-os/akmods:main-43 | jq -r .Digest
+skopeo inspect docker://ghcr.io/ublue-os/akmods-nvidia-open:main-43 | jq -r .Digest
 ```
