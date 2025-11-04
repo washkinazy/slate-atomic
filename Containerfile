@@ -39,7 +39,7 @@ RUN --mount=type=bind,from=ctx,src=/,dst=/ctx \
     --mount=type=bind,from=akmods,src=/kernel-rpms,dst=/tmp/kernel-rpms \
     --mount=type=bind,from=akmods_nvidia,src=/rpms,dst=/tmp/akmods-nv-rpms \
     /ctx/install.sh && \
-    if [ "${BUILD_NVIDIA}" == "Y" ]; then \
+    if [ "${BUILD_NVIDIA}" = "Y" ]; then \
         AKMODNV_PATH=/tmp/akmods-nv-rpms /ctx/nvidia-install.sh \
     ; fi && \
     /ctx/initramfs.sh && \
