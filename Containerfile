@@ -16,8 +16,8 @@ FROM ghcr.io/ublue-os/akmods:main-${FEDORA_VERSION} AS akmods
 # Get nvidia akmods from ublue-os (always mount, conditionally use)
 FROM ghcr.io/ublue-os/akmods-nvidia-open:main-${FEDORA_VERSION} AS akmods_nvidia
 
-# Base Image - Fedora Silverblue (GNOME)
-FROM quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}
+# Base Image - Fedora base-atomic
+FROM quay.io/fedora-ostree-desktops/base-atomic:${FEDORA_VERSION}
 
 ARG FEDORA_VERSION="${FEDORA_VERSION:-43}"
 ARG IMAGE_NAME="${IMAGE_NAME:-slate}"

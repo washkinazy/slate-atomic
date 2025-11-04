@@ -5,7 +5,7 @@
 # DO NOT manually edit this file - it will be overwritten by the workflow
 
 images:
-  - name: silverblue-43
+  - name: base-atomic-43
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
   - name: akmods-43
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -127,25 +127,6 @@ just build-nvidia
 just build-all
 ```
 
-## Philosophy
-
-slate follows these principles:
-
-1. **Fedora First**: Built directly on Fedora, not derivative images
-2. **Maximum Control**: Use Containerfile approach for full transparency
-3. **Minimal Opinions**: Provide tools, let users decide workflows
-4. **Zero Lock-in**: Easy to fork, modify, or migrate away
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test locally with `just build-all`
-5. Submit a pull request
-
 ## License
 
 MIT License - see LICENSE file for details

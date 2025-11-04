@@ -50,24 +50,24 @@ jobs:
           echo "Fetching current upstream digests..."
 
           # Fetch current digests from upstream
-          BASE_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://quay.io/fedora/fedora-silverblue:${{ env.FEDORA_VERSION }})
+          BASE_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://quay.io/fedora-ostree-desktops/base-atomic:${{ env.FEDORA_VERSION }})
           AKMODS_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/ublue-os/akmods:main-${{ env.FEDORA_VERSION }})
           NVIDIA_DIGEST=$(skopeo inspect --format '{{.Digest}}' docker://ghcr.io/ublue-os/akmods-nvidia-open:main-${{ env.FEDORA_VERSION }})
 
           echo "Current upstream digests:"
-          echo "  Fedora Silverblue: $BASE_DIGEST"
+          echo "  Fedora base-atomic: $BASE_DIGEST"
           echo "  Akmods: $AKMODS_DIGEST"
           echo "  Nvidia Akmods: $NVIDIA_DIGEST"
 
           # Load stored digests from image-versions.yaml
           if [ -f image-versions.yaml ]; then
-            STORED_BASE=$(yq -r '.images[] | select(.name == "silverblue-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
+            STORED_BASE=$(yq -r '.images[] | select(.name == "base-atomic-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
             STORED_AKMODS=$(yq -r '.images[] | select(.name == "akmods-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
             STORED_NVIDIA=$(yq -r '.images[] | select(.name == "akmods-nvidia-open-${{ env.FEDORA_VERSION }}") | .digest' image-versions.yaml)
 
             echo ""
             echo "Stored digests:"
-            echo "  Fedora Silverblue: $STORED_BASE"
+            echo "  Fedora base-atomic: $STORED_BASE"
             echo "  Akmods: $STORED_AKMODS"
             echo "  Nvidia Akmods: $STORED_NVIDIA"
           else
@@ -85,7 +85,7 @@ jobs:
 
           if [ "$BASE_DIGEST" != "$STORED_BASE" ]; then
             echo ""
-            echo "CHANGED: Fedora Silverblue digest changed!"
+            echo "CHANGED: Fedora base-atomic digest changed!"
             BUILD_REQUIRED=true
             BASE_CHANGED=true
           fi
@@ -118,7 +118,7 @@ jobs:
           # Store new digests for next run
           cat > image-versions.yaml <<EOF
           images:
-            - name: silverblue-${{ env.FEDORA_VERSION }}
+            - name: base-atomic-${{ env.FEDORA_VERSION }}
               digest: $BASE_DIGEST
             - name: akmods-${{ env.FEDORA_VERSION }}
               digest: $AKMODS_DIGEST
