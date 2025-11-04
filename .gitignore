@@ -1,0 +1,24 @@
+# Signing private keys - NEVER COMMIT THESE!
+cosign.key
+cosign.private
+
+# Build artifacts
+_build/
+*.log
+
+# Temporary files
+*.tmp
+*.swp
+*~
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Output files
+previous.manifest.json
+changelog.md
+output.env
+output/
