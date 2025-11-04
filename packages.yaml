@@ -1,0 +1,57 @@
+---
+# Package definitions for slate-atomic
+# This file defines which packages to install and remove during image build
+
+# Fedora packages (installed first, safe from COPR injection)
+fedora_packages:
+  # Packages for all Fedora versions
+  all:
+    - avahi
+    - dconf
+    - gvfs-afc
+    - gvfs-afp
+    - gvfs-archive
+    - gvfs-fuse
+    - gvfs-goa
+    - gvfs-gphoto2
+    - gvfs-mtp
+    - gvfs-smb
+    - mesa-dri-drivers
+    - mesa-libEGL
+    - mesa-vulkan-drivers
+    - plymouth-system-theme
+    - polkit
+    - systemd-oomd-defaults
+    - xdg-desktop-portal
+    - xdg-desktop-portal-gnome
+    - xdg-desktop-portal-gtk
+    - xdg-user-dirs-gtk
+
+#   Version-specific packages (optional)
+#   These only install on specific Fedora versions
+#   version_43:
+#     - example-f43-only-package
+
+# COPR packages (installed with isolated repo enablement for security)
+# Format: copr_name: [package1, package2, ...]
+copr_packages:
+  washkinazy/wayland-wm-extras:
+    - gtk-session-lock
+    - gtklock
+    - gtklock-playerctl-module
+    - gtklock-powerbar-module
+    - gtklock-userinfo-module
+
+# Third-party repositories (non-COPR)
+# These repos are added, packages installed, then disabled
+third_party_repos: {}
+# Uncomment and configure as needed:
+#   fedora-multimedia:
+#     url: https://negativo17.org/repos/fedora-multimedia.repo
+#     packages:
+#       - ffmpeg
+#       - ffmpeg-libs
+
+# Packages to remove from the base image
+exclude:
+  - fedora-bookmarks

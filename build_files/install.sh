@@ -56,6 +56,9 @@ cd -
 
 dnf5 versionlock add kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra
 
+# Install packages from packages.yaml
+/ctx/packages.sh
+
 # Install sjust (slate just) recipes for end users
 mkdir -p /usr/share/slate/just
 cp -r /ctx/just/* /usr/share/slate/just/
