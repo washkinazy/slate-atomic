@@ -108,7 +108,6 @@ jobs:
             ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix={{branch}}-
             type=ref,event=pr
             type=ref,event=branch
 
